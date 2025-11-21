@@ -8,6 +8,14 @@ from numpy_dl.models.resnet import (
 )
 from numpy_dl.models.unet import UNet
 from numpy_dl.models.rnn_models import SimpleRNN, Seq2Seq
+from numpy_dl.models.multitask import (
+    TaskHead,
+    HardParameterSharing,
+    SoftParameterSharing,
+    MultiTaskModel,
+    create_hard_sharing_model,
+    create_soft_sharing_model,
+)
 
 __all__ = [
     'MLP',
@@ -24,4 +32,11 @@ __all__ = [
     'UNet',
     'SimpleRNN',
     'Seq2Seq',
+    # Multi-task learning
+    'TaskHead',
+    'HardParameterSharing',
+    'SoftParameterSharing',
+    'MultiTaskModel',
+    'create_hard_sharing_model',
+    'create_soft_sharing_model',
 ]

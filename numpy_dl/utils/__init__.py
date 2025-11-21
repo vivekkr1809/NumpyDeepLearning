@@ -13,6 +13,11 @@ from numpy_dl.utils.visualization import (
     plot_training_history, plot_confusion_matrix, plot_predictions,
     plot_images_grid, plot_feature_maps, plot_gradient_flow
 )
+from numpy_dl.utils.multitask import (
+    MultiTaskMetrics,
+    MultiTaskTrainer,
+    create_multitask_dataloader,
+)
 
 __all__ = [
     'Device',
@@ -38,4 +43,8 @@ __all__ = [
     'plot_images_grid',
     'plot_feature_maps',
     'plot_gradient_flow',
+    # Multi-task learning
+    'MultiTaskMetrics',
+    'MultiTaskTrainer',
+    'create_multitask_dataloader',
 ]
