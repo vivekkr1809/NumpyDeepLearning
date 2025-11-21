@@ -13,11 +13,17 @@ from numpy_dl.utils.visualization import (
     plot_training_history, plot_confusion_matrix, plot_predictions,
     plot_images_grid, plot_feature_maps, plot_gradient_flow
 )
-from numpy_dl.utils.multitask import (
-    MultiTaskMetrics,
-    MultiTaskTrainer,
-    create_multitask_dataloader,
-)
+
+# Import multitask utilities lazily to avoid circular import with Tensor
+def __getattr__(name):
+    if name in ('MultiTaskMetrics', 'MultiTaskTrainer', 'create_multitask_dataloader'):
+        from numpy_dl.utils.multitask import (
+            MultiTaskMetrics,
+            MultiTaskTrainer,
+            create_multitask_dataloader,
+        )
+        return locals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     'Device',
@@ -43,7 +49,7 @@ __all__ = [
     'plot_images_grid',
     'plot_feature_maps',
     'plot_gradient_flow',
-    # Multi-task learning
+    # Multi-task learning (lazy loaded)
     'MultiTaskMetrics',
     'MultiTaskTrainer',
     'create_multitask_dataloader',
