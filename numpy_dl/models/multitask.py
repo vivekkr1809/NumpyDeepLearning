@@ -13,9 +13,9 @@ References:
 
 from typing import Dict, List, Optional, Union, Callable
 import numpy as np
-from numpy_dl.core.module import Module, ModuleList
+from numpy_dl.core.module import Module, ModuleList, Sequential
 from numpy_dl.core.tensor import Tensor
-from numpy_dl.nn import Linear, Sequential
+from numpy_dl.nn import Linear
 
 
 class TaskHead(Module):

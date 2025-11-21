@@ -403,6 +403,147 @@ def avg_pool2d(
     return out
 
 
+def conv2d_transpose(
+    x: Tensor,
+    weight: Tensor,
+    bias: Optional[Tensor] = None,
+    stride: Union[int, Tuple[int, int]] = 1,
+    padding: Union[int, Tuple[int, int]] = 0,
+    output_padding: Union[int, Tuple[int, int]] = 0,
+) -> Tensor:
+    """2D transposed convolution (deconvolution) operation."""
+    xp = get_array_module(x.data)
+
+    if isinstance(stride, int):
+        stride = (stride, stride)
+    if isinstance(padding, int):
+        padding = (padding, padding)
+    if isinstance(output_padding, int):
+        output_padding = (output_padding, output_padding)
+
+    # Input: (batch, in_channels, height, width)
+    # Weight: (in_channels, out_channels, kernel_h, kernel_w)
+    batch_size, in_channels, in_h, in_w = x.shape
+    _, out_channels, kernel_h, kernel_w = weight.shape
+
+    # Calculate output dimensions
+    out_h = (in_h - 1) * stride[0] - 2 * padding[0] + kernel_h + output_padding[0]
+    out_w = (in_w - 1) * stride[1] - 2 * padding[1] + kernel_w + output_padding[1]
+
+    # Initialize output
+    out_data = xp.zeros((batch_size, out_channels, out_h, out_w), dtype=x.dtype)
+
+    # Perform transposed convolution
+    for b in range(batch_size):
+        for oc in range(out_channels):
+            for ic in range(in_channels):
+                for i in range(in_h):
+                    for j in range(in_w):
+                        h_start = i * stride[0] - padding[0]
+                        w_start = j * stride[1] - padding[1]
+                        h_end = h_start + kernel_h
+                        w_end = w_start + kernel_w
+
+                        # Bounds checking
+                        h_start_valid = max(0, h_start)
+                        w_start_valid = max(0, w_start)
+                        h_end_valid = min(out_h, h_end)
+                        w_end_valid = min(out_w, w_end)
+
+                        if h_start_valid < h_end_valid and w_start_valid < w_end_valid:
+                            kernel_h_start = h_start_valid - h_start
+                            kernel_w_start = w_start_valid - w_start
+                            kernel_h_end = kernel_h_start + (h_end_valid - h_start_valid)
+                            kernel_w_end = kernel_w_start + (w_end_valid - w_start_valid)
+
+                            out_data[b, oc, h_start_valid:h_end_valid, w_start_valid:w_end_valid] += (
+                                x.data[b, ic, i, j] * weight.data[ic, oc, kernel_h_start:kernel_h_end, kernel_w_start:kernel_w_end]
+                            )
+
+    if bias is not None:
+        out_data += bias.data.reshape(1, -1, 1, 1)
+
+    children = (x, weight) if bias is None else (x, weight, bias)
+    out = Tensor(
+        out_data,
+        requires_grad=x.requires_grad or weight.requires_grad or (bias is not None and bias.requires_grad),
+        device=x.device,
+        _children=children,
+        _op='conv2d_transpose'
+    )
+
+    def _backward():
+        if x.requires_grad:
+            # Gradient w.r.t. input is a regular convolution
+            grad_x = xp.zeros_like(x.data)
+            for b in range(batch_size):
+                for ic in range(in_channels):
+                    for oc in range(out_channels):
+                        for i in range(in_h):
+                            for j in range(in_w):
+                                h_start = i * stride[0] - padding[0]
+                                w_start = j * stride[1] - padding[1]
+                                h_end = h_start + kernel_h
+                                w_end = w_start + kernel_w
+
+                                h_start_valid = max(0, h_start)
+                                w_start_valid = max(0, w_start)
+                                h_end_valid = min(out_h, h_end)
+                                w_end_valid = min(out_w, w_end)
+
+                                if h_start_valid < h_end_valid and w_start_valid < w_end_valid:
+                                    kernel_h_start = h_start_valid - h_start
+                                    kernel_w_start = w_start_valid - w_start
+                                    kernel_h_end = kernel_h_start + (h_end_valid - h_start_valid)
+                                    kernel_w_end = kernel_w_start + (w_end_valid - w_start_valid)
+
+                                    grad_x[b, ic, i, j] += xp.sum(
+                                        out.grad[b, oc, h_start_valid:h_end_valid, w_start_valid:w_end_valid] *
+                                        weight.data[ic, oc, kernel_h_start:kernel_h_end, kernel_w_start:kernel_w_end]
+                                    )
+
+            x.grad = grad_x if x.grad is None else x.grad + grad_x
+
+        if weight.requires_grad:
+            # Gradient w.r.t. weight
+            grad_weight = xp.zeros_like(weight.data)
+            for ic in range(in_channels):
+                for oc in range(out_channels):
+                    for b in range(batch_size):
+                        for i in range(in_h):
+                            for j in range(in_w):
+                                h_start = i * stride[0] - padding[0]
+                                w_start = j * stride[1] - padding[1]
+                                h_end = h_start + kernel_h
+                                w_end = w_start + kernel_w
+
+                                h_start_valid = max(0, h_start)
+                                w_start_valid = max(0, w_start)
+                                h_end_valid = min(out_h, h_end)
+                                w_end_valid = min(out_w, w_end)
+
+                                if h_start_valid < h_end_valid and w_start_valid < w_end_valid:
+                                    kernel_h_start = h_start_valid - h_start
+                                    kernel_w_start = w_start_valid - w_start
+                                    kernel_h_end = kernel_h_start + (h_end_valid - h_start_valid)
+                                    kernel_w_end = kernel_w_start + (w_end_valid - w_start_valid)
+
+                                    grad_weight[ic, oc, kernel_h_start:kernel_h_end, kernel_w_start:kernel_w_end] += (
+                                        x.data[b, ic, i, j] *
+                                        out.grad[b, oc, h_start_valid:h_end_valid, w_start_valid:w_end_valid]
+                                    )
+
+            weight.grad = grad_weight if weight.grad is None else weight.grad + grad_weight
+
+        if bias is not None and bias.requires_grad:
+            # Gradient w.r.t. bias
+            grad_bias = xp.sum(out.grad, axis=(0, 2, 3))
+            bias.grad = grad_bias if bias.grad is None else bias.grad + grad_bias
+
+    out._backward = _backward
+    return out
+
+
 def batch_norm(
     x: Tensor,
     gamma: Tensor,

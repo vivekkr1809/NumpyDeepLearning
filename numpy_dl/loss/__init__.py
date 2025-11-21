@@ -9,6 +9,7 @@ from numpy_dl.loss.multitask import (
     GradNorm,
     DynamicWeightAverage,
 )
+from numpy_dl.loss.vae import VAELoss, KLDivergenceLoss
 
 __all__ = [
     'MSELoss',
@@ -21,4 +22,7 @@ __all__ = [
     'UncertaintyWeighting',
     'GradNorm',
     'DynamicWeightAverage',
+    # Variational autoencoders
+    'VAELoss',
+    'KLDivergenceLoss',
 ]

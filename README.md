@@ -15,12 +15,14 @@ A comprehensive deep learning framework built from scratch using NumPy, featurin
 - **RNN/LSTM/GRU**: Sequence modeling and NLP tasks
 - **U-Net**: Image segmentation
 - **ResNet**: Deep residual networks (ResNet-18/34/50/101/152)
+- **Autoencoders**: Standard and convolutional autoencoders for dimensionality reduction
+- **Variational Autoencoders (VAE)**: Generative models with sampling and interpolation
 - **Multi-Task Learning**: Hard/soft parameter sharing with state-of-the-art loss weighting
 
 ### 🛠️ Components
-- **Layers**: Linear, Conv2d, MaxPool2d, AvgPool2d, BatchNorm, LayerNorm, Dropout
+- **Layers**: Linear, Conv2d, ConvTranspose2d, MaxPool2d, AvgPool2d, BatchNorm, LayerNorm, Dropout
 - **Activations**: ReLU, LeakyReLU, Sigmoid, Tanh, Softmax
-- **Loss Functions**: MSE, CrossEntropy, NLLLoss, BCE, BCEWithLogits
+- **Loss Functions**: MSE, CrossEntropy, NLLLoss, BCE, BCEWithLogits, VAELoss, KLDivergence
 - **Multi-Task Loss Weighting**: Uncertainty Weighting, GradNorm, Dynamic Weight Average
 - **Optimizers**: SGD, Adam, AdamW, RMSprop
 - **Data Loading**: Dataset, DataLoader with batching and shuffling
