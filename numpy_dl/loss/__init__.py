@@ -3,6 +3,12 @@
 from numpy_dl.loss.mse import MSELoss
 from numpy_dl.loss.cross_entropy import CrossEntropyLoss, NLLLoss
 from numpy_dl.loss.bce import BCELoss, BCEWithLogitsLoss
+from numpy_dl.loss.multitask import (
+    MultiTaskLoss,
+    UncertaintyWeighting,
+    GradNorm,
+    DynamicWeightAverage,
+)
 
 __all__ = [
     'MSELoss',
@@ -10,4 +16,9 @@ __all__ = [
     'NLLLoss',
     'BCELoss',
     'BCEWithLogitsLoss',
+    # Multi-task learning
+    'MultiTaskLoss',
+    'UncertaintyWeighting',
+    'GradNorm',
+    'DynamicWeightAverage',
 ]
