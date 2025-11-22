@@ -44,38 +44,56 @@ class Adam(Optimizer):
 
     def step(self):
         """Perform a single optimization step."""
+        self._step_count += 1
         self.t += 1
+
+        # Check gradients for numerical issues
+        try:
+            self._check_gradients()
+        except Exception as e:
+            self.logger.warning("Gradient check failed", error=str(e))
 
         for i, param in enumerate(self.params):
             if param.grad is None:
                 continue
 
-            xp = get_array_module(param.data)
-            grad = param.grad
+            try:
+                xp = get_array_module(param.data)
+                grad = param.grad
 
-            # Apply weight decay
-            if self.weight_decay != 0:
-                grad = grad + self.weight_decay * param.data
+                # Apply weight decay
+                if self.weight_decay != 0:
+                    grad = grad + self.weight_decay * param.data
 
-            # Initialize moments if needed
-            if self.m[i] is None:
-                self.m[i] = xp.zeros_like(param.data)
-                self.v[i] = xp.zeros_like(param.data)
+                # Initialize moments if needed
+                if self.m[i] is None:
+                    self.m[i] = xp.zeros_like(param.data)
+                    self.v[i] = xp.zeros_like(param.data)
 
-            # Update biased first moment estimate
-            self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad
+                # Update biased first moment estimate
+                self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad
 
-            # Update biased second raw moment estimate
-            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * (grad ** 2)
+                # Update biased second raw moment estimate
+                self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * (grad ** 2)
 
-            # Compute bias-corrected first moment estimate
-            m_hat = self.m[i] / (1 - self.beta1 ** self.t)
+                # Compute bias-corrected first moment estimate
+                m_hat = self.m[i] / (1 - self.beta1 ** self.t)
 
-            # Compute bias-corrected second raw moment estimate
-            v_hat = self.v[i] / (1 - self.beta2 ** self.t)
+                # Compute bias-corrected second raw moment estimate
+                v_hat = self.v[i] / (1 - self.beta2 ** self.t)
 
-            # Update parameters
-            param.data -= self.lr * m_hat / (xp.sqrt(v_hat) + self.eps)
+                # Update parameters
+                param.data -= self.lr * m_hat / (xp.sqrt(v_hat) + self.eps)
+
+            except Exception as e:
+                self.logger.exception(
+                    "Error updating parameter",
+                    parameter_index=i,
+                    param_shape=param.shape,
+                    step=self._step_count,
+                    error=str(e)
+                )
+                raise
 
     def __repr__(self):
         return (
@@ -121,34 +139,52 @@ class AdamW(Optimizer):
 
     def step(self):
         """Perform a single optimization step."""
+        self._step_count += 1
         self.t += 1
+
+        # Check gradients for numerical issues
+        try:
+            self._check_gradients()
+        except Exception as e:
+            self.logger.warning("Gradient check failed", error=str(e))
 
         for i, param in enumerate(self.params):
             if param.grad is None:
                 continue
 
-            xp = get_array_module(param.data)
-            grad = param.grad
+            try:
+                xp = get_array_module(param.data)
+                grad = param.grad
 
-            # Initialize moments if needed
-            if self.m[i] is None:
-                self.m[i] = xp.zeros_like(param.data)
-                self.v[i] = xp.zeros_like(param.data)
+                # Initialize moments if needed
+                if self.m[i] is None:
+                    self.m[i] = xp.zeros_like(param.data)
+                    self.v[i] = xp.zeros_like(param.data)
 
-            # Update biased first moment estimate
-            self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad
+                # Update biased first moment estimate
+                self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad
 
-            # Update biased second raw moment estimate
-            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * (grad ** 2)
+                # Update biased second raw moment estimate
+                self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * (grad ** 2)
 
-            # Compute bias-corrected first moment estimate
-            m_hat = self.m[i] / (1 - self.beta1 ** self.t)
+                # Compute bias-corrected first moment estimate
+                m_hat = self.m[i] / (1 - self.beta1 ** self.t)
 
-            # Compute bias-corrected second raw moment estimate
-            v_hat = self.v[i] / (1 - self.beta2 ** self.t)
+                # Compute bias-corrected second raw moment estimate
+                v_hat = self.v[i] / (1 - self.beta2 ** self.t)
 
-            # Update parameters with decoupled weight decay
-            param.data -= self.lr * (m_hat / (xp.sqrt(v_hat) + self.eps) + self.weight_decay * param.data)
+                # Update parameters with decoupled weight decay
+                param.data -= self.lr * (m_hat / (xp.sqrt(v_hat) + self.eps) + self.weight_decay * param.data)
+
+            except Exception as e:
+                self.logger.exception(
+                    "Error updating parameter",
+                    parameter_index=i,
+                    param_shape=param.shape,
+                    step=self._step_count,
+                    error=str(e)
+                )
+                raise
 
     def __repr__(self):
         return (

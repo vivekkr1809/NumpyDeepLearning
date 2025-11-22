@@ -3,6 +3,7 @@
 import numpy as np
 from typing import Optional, Iterator
 from numpy_dl.data.dataset import Dataset
+from numpy_dl.utils.logging import get_logger
 
 
 class DataLoader:
@@ -35,11 +36,21 @@ class DataLoader:
         self.shuffle = shuffle
         self.drop_last = drop_last
         self.seed = seed
+        self.logger = get_logger('data')
 
         self.n_samples = len(dataset)
         self.n_batches = self.n_samples // batch_size
         if not drop_last and self.n_samples % batch_size != 0:
             self.n_batches += 1
+
+        self.logger.debug(
+            "DataLoader initialized",
+            n_samples=self.n_samples,
+            batch_size=batch_size,
+            n_batches=self.n_batches,
+            shuffle=shuffle,
+            drop_last=drop_last
+        )
 
     def __len__(self) -> int:
         """Return the number of batches."""
@@ -47,43 +58,93 @@ class DataLoader:
 
     def __iter__(self) -> Iterator:
         """Iterate over batches."""
-        if self.seed is not None:
-            np.random.seed(self.seed)
+        try:
+            if self.seed is not None:
+                np.random.seed(self.seed)
 
-        indices = np.arange(self.n_samples)
-        if self.shuffle:
-            np.random.shuffle(indices)
+            indices = np.arange(self.n_samples)
+            if self.shuffle:
+                np.random.shuffle(indices)
 
-        for start_idx in range(0, self.n_samples, self.batch_size):
-            end_idx = min(start_idx + self.batch_size, self.n_samples)
-            batch_indices = indices[start_idx:end_idx]
+            batch_count = 0
+            for start_idx in range(0, self.n_samples, self.batch_size):
+                end_idx = min(start_idx + self.batch_size, self.n_samples)
+                batch_indices = indices[start_idx:end_idx]
 
-            # Skip incomplete batch if drop_last is True
-            if self.drop_last and len(batch_indices) < self.batch_size:
-                continue
+                # Skip incomplete batch if drop_last is True
+                if self.drop_last and len(batch_indices) < self.batch_size:
+                    continue
 
-            # Gather batch samples
-            batch = [self.dataset[idx] for idx in batch_indices]
+                try:
+                    # Gather batch samples
+                    batch = []
+                    for idx in batch_indices:
+                        try:
+                            sample = self.dataset[idx]
+                            batch.append(sample)
+                        except Exception as e:
+                            self.logger.error(
+                                "Failed to load sample from dataset",
+                                sample_index=int(idx),
+                                batch_count=batch_count,
+                                error=str(e)
+                            )
+                            raise
 
-            # Stack samples into batches
-            if isinstance(batch[0], tuple):
-                # Multiple outputs (e.g., x, y)
-                num_outputs = len(batch[0])
-                batched = []
-                for i in range(num_outputs):
-                    items = [item[i] for item in batch]
-                    # Stack into array
-                    if isinstance(items[0], np.ndarray):
-                        batched.append(np.stack(items))
-                    else:
-                        batched.append(np.array(items))
-                yield tuple(batched)
-            else:
-                # Single output
-                if isinstance(batch[0], np.ndarray):
-                    yield np.stack(batch)
-                else:
-                    yield np.array(batch)
+                    # Stack samples into batches
+                    try:
+                        if isinstance(batch[0], tuple):
+                            # Multiple outputs (e.g., x, y)
+                            num_outputs = len(batch[0])
+                            batched = []
+                            for i in range(num_outputs):
+                                items = [item[i] for item in batch]
+                                # Stack into array
+                                if isinstance(items[0], np.ndarray):
+                                    batched.append(np.stack(items))
+                                else:
+                                    batched.append(np.array(items))
+                            batch_count += 1
+                            yield tuple(batched)
+                        else:
+                            # Single output
+                            if isinstance(batch[0], np.ndarray):
+                                batch_count += 1
+                                yield np.stack(batch)
+                            else:
+                                batch_count += 1
+                                yield np.array(batch)
+                    except Exception as e:
+                        self.logger.exception(
+                            "Failed to stack batch",
+                            batch_count=batch_count,
+                            batch_size=len(batch),
+                            batch_indices=batch_indices.tolist()[:5],  # Log first 5 indices
+                            error=str(e)
+                        )
+                        raise
+
+                except Exception as e:
+                    self.logger.exception(
+                        "Error processing batch",
+                        batch_count=batch_count,
+                        start_idx=start_idx,
+                        end_idx=end_idx,
+                        error=str(e)
+                    )
+                    raise
+
+            self.logger.debug(
+                "DataLoader iteration completed",
+                batches_yielded=batch_count
+            )
+
+        except Exception as e:
+            self.logger.exception(
+                "DataLoader iteration failed",
+                error=str(e)
+            )
+            raise
 
 
 def collate_fn(batch):
