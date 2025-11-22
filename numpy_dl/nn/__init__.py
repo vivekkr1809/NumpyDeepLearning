@@ -7,6 +7,13 @@ from numpy_dl.nn.activation import ReLU, LeakyReLU, Sigmoid, Tanh, Softmax, LogS
 from numpy_dl.nn.dropout import Dropout
 from numpy_dl.nn.normalization import BatchNorm1d, BatchNorm2d, LayerNorm
 from numpy_dl.nn.rnn import RNNCell, LSTMCell, GRUCell, RNN
+from numpy_dl.nn.embedding import Embedding
+from numpy_dl.nn.attention import (
+    ScaledDotProductAttention,
+    MultiHeadAttention,
+    PositionwiseFeedForward,
+    PositionalEncoding
+)
 
 __all__ = [
     'Linear',
@@ -29,4 +36,9 @@ __all__ = [
     'LSTMCell',
     'GRUCell',
     'RNN',
+    'Embedding',
+    'ScaledDotProductAttention',
+    'MultiHeadAttention',
+    'PositionwiseFeedForward',
+    'PositionalEncoding',
 ]
