@@ -202,6 +202,37 @@ class MultiTaskTrainer:
             'val_metrics': []
         }
 
+    def _parse_batch(self, batch):
+        """
+        Parse batch into inputs and targets.
+
+        Handles multiple batch formats:
+        - Tuple/list: (inputs, targets) or (inputs, task1_target, task2_target, ...)
+        - Dict: {'input'/'inputs': ..., 'task1': ..., 'task2': ...}
+
+        Args:
+            batch: Batch data in various formats
+
+        Returns:
+            Tuple of (inputs, targets_dict)
+
+        Raises:
+            ValueError: If batch format is not supported
+        """
+        if isinstance(batch, (list, tuple)):
+            if len(batch) == 2:
+                inputs, targets = batch
+            else:
+                inputs = batch[0]
+                targets = {task: batch[i + 1] for i, task in enumerate(self.metric_fns.keys())}
+        elif isinstance(batch, dict):
+            inputs = batch.get('input', batch.get('inputs'))
+            targets = {k: v for k, v in batch.items() if k not in ['input', 'inputs']}
+        else:
+            raise ValueError(f"Unsupported batch format: {type(batch)}")
+
+        return inputs, targets
+
     def train_epoch(
         self,
         train_loader: DataLoader,
@@ -229,18 +260,8 @@ class MultiTaskTrainer:
             )
 
         for batch_idx, batch in enumerate(train_loader):
-            # Handle different batch formats
-            if isinstance(batch, (list, tuple)):
-                if len(batch) == 2:
-                    inputs, targets = batch
-                else:
-                    inputs = batch[0]
-                    targets = {task: batch[i + 1] for i, task in enumerate(self.metric_fns.keys())}
-            elif isinstance(batch, dict):
-                inputs = batch.get('input', batch.get('inputs'))
-                targets = {k: v for k, v in batch.items() if k not in ['input', 'inputs']}
-            else:
-                raise ValueError(f"Unsupported batch format: {type(batch)}")
+            # Parse batch into inputs and targets
+            inputs, targets = self._parse_batch(batch)
 
             # Move to device
             if isinstance(inputs, Tensor):
@@ -309,18 +330,8 @@ class MultiTaskTrainer:
             )
 
         for batch in val_loader:
-            # Handle different batch formats
-            if isinstance(batch, (list, tuple)):
-                if len(batch) == 2:
-                    inputs, targets = batch
-                else:
-                    inputs = batch[0]
-                    targets = {task: batch[i + 1] for i, task in enumerate(self.metric_fns.keys())}
-            elif isinstance(batch, dict):
-                inputs = batch.get('input', batch.get('inputs'))
-                targets = {k: v for k, v in batch.items() if k not in ['input', 'inputs']}
-            else:
-                raise ValueError(f"Unsupported batch format: {type(batch)}")
+            # Parse batch into inputs and targets
+            inputs, targets = self._parse_batch(batch)
 
             # Move to device
             if isinstance(inputs, Tensor):
