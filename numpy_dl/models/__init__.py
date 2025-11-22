@@ -22,6 +22,14 @@ from numpy_dl.models.autoencoder import (
     VariationalAutoencoder,
     ConvVariationalAutoencoder,
 )
+from numpy_dl.models.transformer import (
+    TransformerEncoderLayer,
+    TransformerDecoderLayer,
+    TransformerEncoder,
+    TransformerDecoder,
+    Transformer,
+    GPTModel,
+)
 
 __all__ = [
     'MLP',
@@ -50,4 +58,11 @@ __all__ = [
     'ConvAutoencoder',
     'VariationalAutoencoder',
     'ConvVariationalAutoencoder',
+    # Transformers
+    'TransformerEncoderLayer',
+    'TransformerDecoderLayer',
+    'TransformerEncoder',
+    'TransformerDecoder',
+    'Transformer',
+    'GPTModel',
 ]
