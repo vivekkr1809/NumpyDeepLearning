@@ -9,6 +9,7 @@ import numpy as np
 from numpy_dl.core.tensor import Tensor
 from numpy_dl.core.module import Module
 from numpy_dl.data import DataLoader
+from numpy_dl.utils.logging import get_logger, ContextLogger
 
 
 class MultiTaskMetrics:
@@ -201,6 +202,14 @@ class MultiTaskTrainer:
             'train_metrics': [],
             'val_metrics': []
         }
+        self.logger = get_logger('training')
+        self.logger.info(
+            "Initialized MultiTaskTrainer",
+            device=device,
+            num_tasks=len(metric_fns),
+            grad_clip=grad_clip,
+            optimizer=type(optimizer).__name__
+        )
 
     def _parse_batch(self, batch):
         """
@@ -219,19 +228,39 @@ class MultiTaskTrainer:
         Raises:
             ValueError: If batch format is not supported
         """
-        if isinstance(batch, (list, tuple)):
-            if len(batch) == 2:
-                inputs, targets = batch
+        try:
+            if isinstance(batch, (list, tuple)):
+                if len(batch) == 2:
+                    inputs, targets = batch
+                else:
+                    inputs = batch[0]
+                    targets = {task: batch[i + 1] for i, task in enumerate(self.metric_fns.keys())}
+            elif isinstance(batch, dict):
+                inputs = batch.get('input', batch.get('inputs'))
+                if inputs is None:
+                    self.logger.error(
+                        "Batch dict missing 'input' or 'inputs' key",
+                        batch_keys=list(batch.keys())
+                    )
+                    raise ValueError("Batch dict must contain 'input' or 'inputs' key")
+                targets = {k: v for k, v in batch.items() if k not in ['input', 'inputs']}
             else:
-                inputs = batch[0]
-                targets = {task: batch[i + 1] for i, task in enumerate(self.metric_fns.keys())}
-        elif isinstance(batch, dict):
-            inputs = batch.get('input', batch.get('inputs'))
-            targets = {k: v for k, v in batch.items() if k not in ['input', 'inputs']}
-        else:
-            raise ValueError(f"Unsupported batch format: {type(batch)}")
+                self.logger.error(
+                    "Unsupported batch format",
+                    batch_type=type(batch).__name__,
+                    expected_types="tuple, list, or dict"
+                )
+                raise ValueError(f"Unsupported batch format: {type(batch)}")
 
-        return inputs, targets
+            return inputs, targets
+
+        except Exception as e:
+            self.logger.exception(
+                "Failed to parse batch",
+                batch_type=type(batch).__name__,
+                error=str(e)
+            )
+            raise
 
     def train_epoch(
         self,
@@ -248,9 +277,12 @@ class MultiTaskTrainer:
         Returns:
             (average_loss, task_metrics)
         """
+        self.logger.debug("Starting training epoch", num_batches=len(train_loader))
+
         self.model.train()
         epoch_loss = 0.0
         num_batches = 0
+        gradient_clipped_count = 0
 
         # Initialize metrics tracker
         if self.metric_fns:
@@ -259,51 +291,98 @@ class MultiTaskTrainer:
                 metric_fns=self.metric_fns
             )
 
-        for batch_idx, batch in enumerate(train_loader):
-            # Parse batch into inputs and targets
-            inputs, targets = self._parse_batch(batch)
+        try:
+            for batch_idx, batch in enumerate(train_loader):
+                try:
+                    # Parse batch into inputs and targets
+                    inputs, targets = self._parse_batch(batch)
 
-            # Move to device
-            if isinstance(inputs, Tensor):
-                inputs = inputs.to(self.device)
-            if isinstance(targets, dict):
-                targets = {k: v.to(self.device) if isinstance(v, Tensor) else v
-                          for k, v in targets.items()}
+                    # Move to device
+                    if isinstance(inputs, Tensor):
+                        inputs = inputs.to(self.device)
+                    if isinstance(targets, dict):
+                        targets = {k: v.to(self.device) if isinstance(v, Tensor) else v
+                                  for k, v in targets.items()}
 
-            # Forward pass
-            self.optimizer.zero_grad()
-            outputs = self.model(inputs)
+                    # Forward pass
+                    self.optimizer.zero_grad()
+                    outputs = self.model(inputs)
 
-            # Compute loss
-            loss, task_losses = self.loss_fn(outputs, targets, return_dict=True)
+                    # Compute loss
+                    loss, task_losses = self.loss_fn(outputs, targets, return_dict=True)
 
-            # Backward pass
-            loss.backward()
+                    # Check for NaN/Inf in loss
+                    loss_val = float(loss.data)
+                    if np.isnan(loss_val) or np.isinf(loss_val):
+                        self.logger.error(
+                            "Invalid loss value detected",
+                            batch_idx=batch_idx,
+                            loss_value=loss_val,
+                            task_losses={k: float(v.data) for k, v in task_losses.items()}
+                        )
+                        raise ValueError(f"Invalid loss value: {loss_val}")
 
-            # Gradient clipping
-            if self.grad_clip is not None:
-                for param in self.model.parameters():
-                    if param.grad is not None:
-                        grad_norm = np.linalg.norm(param.grad.data)
-                        if grad_norm > self.grad_clip:
-                            param.grad.data = param.grad.data * (self.grad_clip / grad_norm)
+                    # Backward pass
+                    loss.backward()
 
-            self.optimizer.step()
+                    # Gradient clipping with logging
+                    if self.grad_clip is not None:
+                        max_grad_norm = 0.0
+                        for param in self.model.parameters():
+                            if param.grad is not None:
+                                grad_norm = np.linalg.norm(param.grad.data)
+                                max_grad_norm = max(max_grad_norm, grad_norm)
+                                if grad_norm > self.grad_clip:
+                                    param.grad.data = param.grad.data * (self.grad_clip / grad_norm)
+                                    gradient_clipped_count += 1
 
-            # Track metrics
-            epoch_loss += float(loss.data)
-            num_batches += 1
+                        if max_grad_norm > self.grad_clip:
+                            self.logger.debug(
+                                "Gradient clipping applied",
+                                batch_idx=batch_idx,
+                                max_grad_norm=float(max_grad_norm),
+                                clip_threshold=self.grad_clip
+                            )
 
-            if self.metric_fns:
-                metrics_tracker.update(outputs, targets, task_losses)
+                    self.optimizer.step()
 
-            if verbose and (batch_idx + 1) % 10 == 0:
-                print(f"  Batch {batch_idx + 1}/{len(train_loader)}, Loss: {float(loss.data):.4f}")
+                    # Track metrics
+                    epoch_loss += loss_val
+                    num_batches += 1
 
-        avg_loss = epoch_loss / num_batches
-        metrics = metrics_tracker.compute() if self.metric_fns else {}
+                    if self.metric_fns:
+                        metrics_tracker.update(outputs, targets, task_losses)
 
-        return avg_loss, metrics
+                    if verbose and (batch_idx + 1) % 10 == 0:
+                        print(f"  Batch {batch_idx + 1}/{len(train_loader)}, Loss: {loss_val:.4f}")
+
+                except Exception as e:
+                    self.logger.exception(
+                        "Error during batch training",
+                        batch_idx=batch_idx,
+                        error=str(e)
+                    )
+                    raise
+
+            avg_loss = epoch_loss / num_batches
+            metrics = metrics_tracker.compute() if self.metric_fns else {}
+
+            self.logger.info(
+                "Training epoch completed",
+                avg_loss=avg_loss,
+                num_batches=num_batches,
+                gradient_clipped_batches=gradient_clipped_count
+            )
+
+            return avg_loss, metrics
+
+        except Exception as e:
+            self.logger.exception(
+                "Training epoch failed",
+                error=str(e),
+                batches_completed=num_batches
+            )
+            raise
 
     def validate(
         self,
@@ -318,6 +397,8 @@ class MultiTaskTrainer:
         Returns:
             (average_loss, task_metrics)
         """
+        self.logger.debug("Starting validation", num_batches=len(val_loader))
+
         self.model.eval()
         epoch_loss = 0.0
         num_batches = 0
@@ -329,31 +410,65 @@ class MultiTaskTrainer:
                 metric_fns=self.metric_fns
             )
 
-        for batch in val_loader:
-            # Parse batch into inputs and targets
-            inputs, targets = self._parse_batch(batch)
+        try:
+            for batch_idx, batch in enumerate(val_loader):
+                try:
+                    # Parse batch into inputs and targets
+                    inputs, targets = self._parse_batch(batch)
 
-            # Move to device
-            if isinstance(inputs, Tensor):
-                inputs = inputs.to(self.device)
-            if isinstance(targets, dict):
-                targets = {k: v.to(self.device) if isinstance(v, Tensor) else v
-                          for k, v in targets.items()}
+                    # Move to device
+                    if isinstance(inputs, Tensor):
+                        inputs = inputs.to(self.device)
+                    if isinstance(targets, dict):
+                        targets = {k: v.to(self.device) if isinstance(v, Tensor) else v
+                                  for k, v in targets.items()}
 
-            # Forward pass (no gradients needed)
-            outputs = self.model(inputs)
-            loss, task_losses = self.loss_fn(outputs, targets, return_dict=True)
+                    # Forward pass (no gradients needed)
+                    outputs = self.model(inputs)
+                    loss, task_losses = self.loss_fn(outputs, targets, return_dict=True)
 
-            epoch_loss += float(loss.data)
-            num_batches += 1
+                    # Check for NaN/Inf in validation loss
+                    loss_val = float(loss.data)
+                    if np.isnan(loss_val) or np.isinf(loss_val):
+                        self.logger.warning(
+                            "Invalid loss value during validation",
+                            batch_idx=batch_idx,
+                            loss_value=loss_val,
+                            task_losses={k: float(v.data) for k, v in task_losses.items()}
+                        )
 
-            if self.metric_fns:
-                metrics_tracker.update(outputs, targets, task_losses)
+                    epoch_loss += loss_val
+                    num_batches += 1
 
-        avg_loss = epoch_loss / num_batches
-        metrics = metrics_tracker.compute() if self.metric_fns else {}
+                    if self.metric_fns:
+                        metrics_tracker.update(outputs, targets, task_losses)
 
-        return avg_loss, metrics
+                except Exception as e:
+                    self.logger.exception(
+                        "Error during batch validation",
+                        batch_idx=batch_idx,
+                        error=str(e)
+                    )
+                    raise
+
+            avg_loss = epoch_loss / num_batches
+            metrics = metrics_tracker.compute() if self.metric_fns else {}
+
+            self.logger.info(
+                "Validation completed",
+                avg_loss=avg_loss,
+                num_batches=num_batches
+            )
+
+            return avg_loss, metrics
+
+        except Exception as e:
+            self.logger.exception(
+                "Validation failed",
+                error=str(e),
+                batches_completed=num_batches
+            )
+            raise
 
     def fit(
         self,
@@ -374,35 +489,71 @@ class MultiTaskTrainer:
         Returns:
             Training history dictionary
         """
-        for epoch in range(epochs):
-            if verbose:
-                print(f"\nEpoch {epoch + 1}/{epochs}")
-                print("-" * 50)
+        self.logger.info(
+            "Starting training",
+            epochs=epochs,
+            train_batches=len(train_loader),
+            val_batches=len(val_loader) if val_loader else 0
+        )
 
-            # Train
-            train_loss, train_metrics = self.train_epoch(train_loader, verbose=False)
-            self.history['train_loss'].append(train_loss)
-            self.history['train_metrics'].append(train_metrics)
+        try:
+            with ContextLogger(self.logger, "training", epochs=epochs):
+                for epoch in range(epochs):
+                    if verbose:
+                        print(f"\nEpoch {epoch + 1}/{epochs}")
+                        print("-" * 50)
 
-            if verbose:
-                print(f"Train Loss: {train_loss:.4f}")
-                if train_metrics:
-                    for task, metrics in train_metrics.items():
-                        print(f"  {task}: {metrics}")
+                    self.logger.info(f"Starting epoch {epoch + 1}/{epochs}")
 
-            # Validate
-            if val_loader is not None:
-                val_loss, val_metrics = self.validate(val_loader)
-                self.history['val_loss'].append(val_loss)
-                self.history['val_metrics'].append(val_metrics)
+                    # Train
+                    train_loss, train_metrics = self.train_epoch(train_loader, verbose=False)
+                    self.history['train_loss'].append(train_loss)
+                    self.history['train_metrics'].append(train_metrics)
 
-                if verbose:
-                    print(f"Val Loss: {val_loss:.4f}")
-                    if val_metrics:
-                        for task, metrics in val_metrics.items():
-                            print(f"  {task}: {metrics}")
+                    if verbose:
+                        print(f"Train Loss: {train_loss:.4f}")
+                        if train_metrics:
+                            for task, metrics in train_metrics.items():
+                                print(f"  {task}: {metrics}")
 
-        return self.history
+                    # Validate
+                    if val_loader is not None:
+                        val_loss, val_metrics = self.validate(val_loader)
+                        self.history['val_loss'].append(val_loss)
+                        self.history['val_metrics'].append(val_metrics)
+
+                        if verbose:
+                            print(f"Val Loss: {val_loss:.4f}")
+                            if val_metrics:
+                                for task, metrics in val_metrics.items():
+                                    print(f"  {task}: {metrics}")
+
+                    # Log epoch summary
+                    epoch_summary = {
+                        'epoch': epoch + 1,
+                        'train_loss': train_loss
+                    }
+                    if val_loader is not None:
+                        epoch_summary['val_loss'] = val_loss
+
+                    self.logger.info("Epoch completed", **epoch_summary)
+
+                self.logger.info(
+                    "Training completed successfully",
+                    final_train_loss=self.history['train_loss'][-1],
+                    final_val_loss=self.history['val_loss'][-1] if self.history['val_loss'] else None,
+                    total_epochs=epochs
+                )
+
+                return self.history
+
+        except Exception as e:
+            self.logger.exception(
+                "Training failed",
+                error=str(e),
+                epochs_completed=len(self.history['train_loss'])
+            )
+            raise
 
     def get_task_weights(self) -> Optional[Dict[str, float]]:
         """

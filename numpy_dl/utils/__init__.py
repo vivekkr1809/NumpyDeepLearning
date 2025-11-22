@@ -13,6 +13,10 @@ from numpy_dl.utils.visualization import (
     plot_training_history, plot_confusion_matrix, plot_predictions,
     plot_images_grid, plot_feature_maps, plot_gradient_flow
 )
+from numpy_dl.utils.logging import (
+    StructuredLogger, LoggerFactory, configure_logging, get_logger,
+    ContextLogger, log_function_call
+)
 
 # Import multitask utilities lazily to avoid circular import with Tensor
 def __getattr__(name):
@@ -49,6 +53,13 @@ __all__ = [
     'plot_images_grid',
     'plot_feature_maps',
     'plot_gradient_flow',
+    # Logging utilities
+    'StructuredLogger',
+    'LoggerFactory',
+    'configure_logging',
+    'get_logger',
+    'ContextLogger',
+    'log_function_call',
     # Multi-task learning (lazy loaded)
     'MultiTaskMetrics',
     'MultiTaskTrainer',
